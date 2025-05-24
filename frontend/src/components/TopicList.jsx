@@ -28,12 +28,17 @@ const TopicList = ({ topics, currentReport, onSelectTopic, activeTopicId, loadin
 
   return (
     <Box sx={{height: '100%', display: 'flex', flexDirection: 'column'}}>
-      <Typography variant="h6" sx={{ px: 2, pt: 2, pb:1 }}>
+      <Typography variant="h6" sx={{ 
+        px: 2, 
+        pt: 2, 
+        pb: 1,
+        fontSize: { xs: '1rem', sm: '1.25rem' }
+      }}>
         ESG Topics
-        {currentReport?.scoreDetails && ` (${currentReport.scoreDetails.answered_count}/${topics.length})`}
-        {!currentReport?.scoreDetails && currentReport?.final_score !== undefined && ` (${currentReport.final_score}/${topics.length})`}
+        {topics.length > 0 && ` (${topics.length})`}
+        {currentReport?.final_score !== undefined && ` | Score: ${currentReport.final_score}`}
       </Typography>
-      <List dense sx={{ overflowY: 'auto', flexGrow: 1, pb:2 }}>
+      <List dense sx={{ overflowY: 'auto', flexGrow: 1, pb: 2 }}>
         {topics.map(topic => {
           const isCurrentlyLoading = loadingSuggestionsForTopicId === topic.id;
           const status = getAnnotationStatus(topic.id);
@@ -48,15 +53,21 @@ const TopicList = ({ topics, currentReport, onSelectTopic, activeTopicId, loadin
               sx={{
                 mb: 0.5,
                 borderRadius: 1,
+                px: { xs: 1, sm: 2 },
+                py: { xs: 0.5, sm: 1 },
                 ...(isActive && { backgroundColor: 'action.selected', '&:hover': { backgroundColor: 'action.selected' }})
               }}
             >
               <ListItemText
                 primary={`${topic.topic_number}. ${topic.name}`}
-                primaryTypographyProps={{ fontWeight: isActive ? 'bold' : 'normal', noWrap: true,  fontSize: '0.9rem' }}
+                primaryTypographyProps={{ 
+                  fontWeight: isActive ? 'bold' : 'normal', 
+                  noWrap: true,  
+                  fontSize: { xs: '0.8rem', sm: '0.9rem' }
+                }}
               />
               {isCurrentlyLoading ? (
-                <CircularProgress size={20} sx={{ ml: 1 }} />
+                <CircularProgress size={16} sx={{ ml: 1 }} />
               ) : (
                 <Tooltip title={statusAttrs.label} placement="top">
                     <Chip
@@ -64,8 +75,12 @@ const TopicList = ({ topics, currentReport, onSelectTopic, activeTopicId, loadin
                         label={statusAttrs.label}
                         color={statusAttrs.color}
                         size="small"
-                        variant="outlined" // Use outlined for better contrast with selected item
-                        sx={{ ml: 1, minWidth: '90px' }}
+                        variant="outlined"
+                        sx={{ 
+                          ml: 1, 
+                          minWidth: { xs: '70px', sm: '90px' },
+                          fontSize: { xs: '0.7rem', sm: '0.75rem' }
+                        }}
                     />
                 </Tooltip>
               )}

@@ -62,8 +62,7 @@ const ReportUpload = ({ onUploadSuccess }) => {
       <Typography variant="h5" component="h3" gutterBottom>
         Upload New Report
       </Typography>
-      <form onSubmit={handleSubmit}>
-        <Stack spacing={2}>
+      <Stack spacing={2} component="form" onSubmit={handleSubmit}>
           <TextField
             fullWidth
             label="Company Name (Optional)"
@@ -78,7 +77,6 @@ const ReportUpload = ({ onUploadSuccess }) => {
             fullWidth
             type="file"
             id="file"
-            // label="Report PDF" // Not ideal for type="file"
             InputLabelProps={{ shrink: true }}
             inputProps={{ accept: ".pdf" }}
             onChange={handleFileChange}
@@ -95,11 +93,12 @@ const ReportUpload = ({ onUploadSuccess }) => {
             variant="contained"
             startIcon={uploading ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
             disabled={uploading || !file}
+            fullWidth
+            sx={{ mt: 2 }}
           >
             {uploading ? 'Uploading...' : 'Upload Report'}
           </Button>
         </Stack>
-      </form>
     </Box>
   );
 };

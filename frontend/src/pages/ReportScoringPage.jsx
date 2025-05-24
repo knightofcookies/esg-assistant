@@ -44,9 +44,7 @@ const ReportScoringPage = () => {
   const [selectedTopic, setSelectedTopic] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [pdfObjectUrl, setPdfObjectUrl] = useState("");
-  const [currentPdfPage, setCurrentPdfPage] = useState(1);
   const [pdfTotalPages, setPdfTotalPages] = useState(null);
-  const [activeHighlight, setActiveHighlight] = useState(null);
   const [probabilityThreshold, setProbabilityThreshold] = useState(0.7);
   const [topK, setTopK] = useState(20);
   const [scoreDetails, setScoreDetails] = useState(null);
@@ -80,7 +78,6 @@ const ReportScoringPage = () => {
       setScoreDetails(scoreRes.data);
     } catch (err) {
       setError("Failed to load report details or PDF.");
-      console.error(err);
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
       setPdfObjectUrl("");
       setReport(null);
@@ -97,7 +94,6 @@ const ReportScoringPage = () => {
       setEsgTopics(topicsRes.data);
     } catch (err) {
       setError((prev) => `${prev}\nFailed to load ESG topics.`.trim());
-      console.error(err);
     } finally {
       setLoadingTopics(false);
     }
@@ -114,13 +110,11 @@ const ReportScoringPage = () => {
   const handleSelectTopic = (topic) => {
     setSelectedTopic(topic);
     setSuggestions([]);
-    setActiveHighlight(null);
   };
 
   useEffect(() => {
     if (!selectedTopic || !report || report.status !== "processed") {
       setSuggestions([]);
-      setActiveHighlight(null);
       if (report && report.status !== "processed" && selectedTopic) {
         setError(
           `Suggestions unavailable: Report status is "${report.status}". Needs to be "processed".`
@@ -141,16 +135,11 @@ const ReportScoringPage = () => {
           probabilityThreshold,
           topK
         );
-        console.log("Suggestions fetched:", suggestionsRes.data);
 
         if (!isCancelled) {
           if (Array.isArray(suggestionsRes.data)) {
             setSuggestions(suggestionsRes.data);
           } else {
-            console.error(
-              "Received non-array suggestions:",
-              suggestionsRes.data
-            );
             setSuggestions([]);
             setError(
               `Received malformed suggestions for ${selectedTopic.name}.`
@@ -164,7 +153,6 @@ const ReportScoringPage = () => {
               err.response?.data?.detail || err.message
             }`
           );
-          console.error(err);
           setSuggestions([]);
         }
       } finally {
@@ -195,11 +183,9 @@ const ReportScoringPage = () => {
         probabilityThreshold,
         topK
       );
-      console.log("Suggestions refreshed:", suggestionsRes.data);
       if (Array.isArray(suggestionsRes.data)) {
         setSuggestions(suggestionsRes.data);
       } else {
-        console.error("Received non-array suggestions:", suggestionsRes.data);
         setSuggestions([]);
         setError(`Received malformed suggestions for ${selectedTopic.name}.`);
       }
@@ -209,7 +195,6 @@ const ReportScoringPage = () => {
           err.response?.data?.detail || err.message
         }`
       );
-      console.error(err);
       setSuggestions([]);
     } finally {
       setLoadingSuggestions(false);
@@ -237,7 +222,6 @@ const ReportScoringPage = () => {
               }
             : ann
         );
-        // Also update the selectedTopic's annotation status if it's derived from the report
         if (selectedTopic) {
           setSelectedTopic((prevTopic) => ({
             ...prevTopic,
@@ -246,7 +230,7 @@ const ReportScoringPage = () => {
         }
         return { ...prevReport, annotations: newAnnotations };
       });
-      const scoreRes = await getReportScore(reportId); // Re-fetch score after annotation
+      const scoreRes = await getReportScore(reportId);
       setScoreDetails(scoreRes.data);
     } catch (err) {
       setError(
@@ -254,42 +238,14 @@ const ReportScoringPage = () => {
           err.response?.data?.detail || err.message
         }`
       );
-      console.error(err);
     } finally {
       setAnnotationLoading(false);
     }
   };
 
-  const handleSuggestionClick = (suggestion) => {
-    console.log('🔍 Suggestion clicked:', suggestion);
-    console.log('📄 Current PDF page before:', currentPdfPage);
-    console.log('🎯 Active highlight before:', activeHighlight);
-
-    if (suggestion.page_number) {
-      console.log('📍 Setting page to:', suggestion.page_number);
-      setCurrentPdfPage(suggestion.page_number);
-    }
-    
-    if (suggestion.coordinates) {
-      const highlight = {
-        pageNumber: suggestion.page_number,
-        coordinates: suggestion.coordinates,
-        id: suggestion.chunk_id,
-      };
-      console.log('✨ Setting highlight:', highlight);
-      setActiveHighlight(highlight);
-    } else {
-      console.log('❌ No coordinates, clearing highlight');
-      setActiveHighlight(null);
-    }
-  };
-
   const handlePdfDocumentLoad = (numPages) => {
     setPdfTotalPages(numPages);
-    if (currentPdfPage > numPages && numPages > 0) setCurrentPdfPage(1);
   };
-
-  const handlePageChangeByViewer = (newPage) => setCurrentPdfPage(newPage);
 
   if (loadingReport || loadingTopics) {
     return (
@@ -359,26 +315,27 @@ const ReportScoringPage = () => {
       sx={{
         display: "flex",
         flexDirection: { xs: "column", md: "row" },
-        height: "calc(100vh - 64px)", // Subtract navbar height (64px is default MUI AppBar height)
-        width: "100vw",
-        overflow: "hidden",
+        height: { xs: "auto", md: "calc(100vh - 64px)" },
+        minHeight: { xs: "100vh", md: "calc(100vh - 64px)" },
+        width: "100%",
+        overflow: { xs: "visible", md: "hidden" },
         mt: 0,
         pt: 1,
-        pr: 2,
+        px: { xs: 1, sm: 2 },
       }}
     >
       {/* Column 1: Topic List */}
       <Box
         sx={{
           width: { xs: "100%", md: "25%" },
-          height: "100%", // Use 100% of parent height instead of 100vh
-          overflowY: "auto",
+          height: { xs: "300px", md: "100%" },
+          mb: { xs: 2, md: 0 },
         }}
       >
         <Paper
           elevation={2}
           sx={{
-            p: 2,
+            p: { xs: 1, sm: 2 },
             height: "100%",
             display: "flex",
             flexDirection: "column",
@@ -389,22 +346,25 @@ const ReportScoringPage = () => {
             currentReport={report}
             onSelectTopic={handleSelectTopic}
             activeTopicId={selectedTopic?.id}
+            loadingSuggestionsForTopicId={loadingSuggestions ? selectedTopic?.id : null}
           />
         </Paper>
       </Box>
 
-      {/* Column 2: Scoring Controls & Suggestions - Wrapped in scrollable container */}
+      {/* Column 2: Scoring Controls & Suggestions */}
       <Box
         sx={{
           width: { xs: "100%", md: "35%" },
-          height: "100%", // Use 100% of parent height
-          p: 2,
+          height: { xs: "auto", md: "100%" },
+          mb: { xs: 2, md: 0 },
+          px: { xs: 0, md: 2 },
         }}
       >
         <Paper
           elevation={2}
           sx={{
-            height: "100%",
+            height: { xs: "auto", md: "100%" },
+            minHeight: { xs: "400px", md: "auto" },
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
@@ -414,16 +374,16 @@ const ReportScoringPage = () => {
             sx={{
               height: "100%",
               overflowY: "auto",
-              p: 2,
+              p: { xs: 1, sm: 2 },
             }}
           >
             {/* Controls Section */}
             <Box sx={{ mb: 3 }}>
               {/* Report Information */}
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '1.1rem', sm: '1.25rem' } }}>
                 Report: {report.company_name}
               </Typography>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }} sx={{ mb: 2 }}>
                 <Typography variant="body2">Status:</Typography>
                 {reportStatusChip(report.status)}
               </Stack>
@@ -437,13 +397,15 @@ const ReportScoringPage = () => {
                       display: "flex",
                       alignItems: "center",
                       gap: 1,
+                      fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                      flexWrap: { xs: "wrap", sm: "nowrap" }
                     }}
                   >
                     <ScoreboardIcon /> ESG Score:{" "}
-                    {scoreDetails.overall_score?.toFixed(1) || "N/A"}%
+                    {scoreDetails.percentage || "N/A"}%
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Based on {scoreDetails.total_annotations || 0} annotations
+                    Based on {scoreDetails.max_score - scoreDetails.pending_count || 0} annotations
                   </Typography>
                 </Box>
               )}
@@ -451,7 +413,7 @@ const ReportScoringPage = () => {
               {/* Topic Selection */}
               {selectedTopic && (
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle1" gutterBottom>
+                  <Typography variant="subtitle1" gutterBottom sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
                     Selected Topic: {selectedTopic.name}
                   </Typography>
 
@@ -460,11 +422,17 @@ const ReportScoringPage = () => {
                     <Typography variant="body2" gutterBottom>
                       Mark as:
                     </Typography>
-                    <ButtonGroup size="small" disabled={annotationLoading}>
+                    <Stack 
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                    >
                       <Button
                         startIcon={<CheckCircleOutlineIcon />}
                         onClick={() => handleAnnotationUpdate("answered")}
                         color="success"
+                        disabled={annotationLoading}
+                        size="small"
+                        fullWidth={{ xs: true, sm: false }}
                       >
                         Disclosed
                       </Button>
@@ -472,6 +440,9 @@ const ReportScoringPage = () => {
                         startIcon={<HighlightOffIcon />}
                         onClick={() => handleAnnotationUpdate("unanswered")}
                         color="error"
+                        disabled={annotationLoading}
+                        size="small"
+                        fullWidth={{ xs: true, sm: false }}
                       >
                         Not Disclosed
                       </Button>
@@ -479,10 +450,13 @@ const ReportScoringPage = () => {
                         startIcon={<HelpOutlineIcon />}
                         onClick={() => handleAnnotationUpdate("pending")}
                         color="warning"
+                        disabled={annotationLoading}
+                        size="small"
+                        fullWidth={{ xs: true, sm: false }}
                       >
                         Uncertain
                       </Button>
-                    </ButtonGroup>
+                    </Stack>
                     {annotationLoading && <CircularProgress size={16} sx={{ ml: 1 }} />}
                   </Box>
                 </Box>
@@ -496,7 +470,9 @@ const ReportScoringPage = () => {
                   </Typography>
 
                   <FormControl fullWidth sx={{ mb: 2 }}>
-                    <FormLabel>Probability Threshold: {probabilityThreshold}</FormLabel>
+                    <FormLabel sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                      Probability Threshold: {probabilityThreshold}
+                    </FormLabel>
                     <Slider
                       value={probabilityThreshold}
                       onChange={(e, value) => setProbabilityThreshold(value)}
@@ -505,11 +481,14 @@ const ReportScoringPage = () => {
                       step={0.1}
                       marks
                       valueLabelDisplay="auto"
+                      size="small"
                     />
                   </FormControl>
 
                   <FormControl fullWidth sx={{ mb: 2 }}>
-                    <FormLabel>Max Results: {topK}</FormLabel>
+                    <FormLabel sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                      Max Results: {topK}
+                    </FormLabel>
                     <Slider
                       value={topK}
                       onChange={(e, value) => setTopK(value)}
@@ -518,6 +497,7 @@ const ReportScoringPage = () => {
                       step={5}
                       marks
                       valueLabelDisplay="auto"
+                      size="small"
                     />
                   </FormControl>
 
@@ -527,6 +507,7 @@ const ReportScoringPage = () => {
                     startIcon={<RefreshIcon />}
                     variant="outlined"
                     size="small"
+                    fullWidth={{ xs: true, sm: false }}
                   >
                     Refresh Suggestions
                   </Button>
@@ -539,7 +520,6 @@ const ReportScoringPage = () => {
               <SuggestionList
                 suggestions={suggestions}
                 isLoading={loadingSuggestions}
-                onSuggestionClick={handleSuggestionClick}
                 reportStatus={report.status}
               />
             </Box>
@@ -551,8 +531,8 @@ const ReportScoringPage = () => {
       <Box
         sx={{
           width: { xs: "100%", md: "40%" },
-          height: "100%", // Use 100% of parent height instead of 100vh
-          pr: 2, // Increase right padding to give PDF viewer more breathing room
+          height: { xs: "500px", md: "100%" },
+          px: { xs: 0, md: 2 },
         }}
       >
         <Paper
@@ -566,10 +546,7 @@ const ReportScoringPage = () => {
         >
           <PDFViewer
             pdfUrl={pdfObjectUrl}
-            pageNumberToDisplay={currentPdfPage}
             onDocumentLoadSuccess={handlePdfDocumentLoad}
-            onPageChange={handlePageChangeByViewer}
-            activeHighlight={activeHighlight}
           />
         </Paper>
       </Box>

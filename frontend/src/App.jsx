@@ -6,21 +6,10 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import ReportScoringPage from './pages/ReportScoringPage';
 import useAuth from './hooks/useAuth';
+import { ThemeProvider, useThemeMode } from './context/ThemeContext';
 
 import { CssBaseline, Container, CircularProgress, Box } from '@mui/material';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-
-// Optional: Create a basic theme
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#1976d2', // Example primary color
-    },
-    secondary: {
-      main: '#dc004e', // Example secondary color
-    },
-  },
-});
+import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 
 function ProtectedRoute({ children }) {
   const { authToken, loading } = useAuth();
@@ -34,9 +23,11 @@ function ProtectedRoute({ children }) {
   return authToken ? children : <Navigate to="/login" replace />;
 }
 
-function App() {
+function AppContent() {
+  const { theme } = useThemeMode();
+  
   return (
-    <ThemeProvider theme={theme}>
+    <MuiThemeProvider theme={theme}>
       <CssBaseline />
       <Navbar />
       <Routes>
@@ -73,6 +64,14 @@ function App() {
           element={<ProtectedRoute><Navigate to="/dashboard" /></ProtectedRoute>}
         />
       </Routes>
+    </MuiThemeProvider>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
     </ThemeProvider>
   );
 }

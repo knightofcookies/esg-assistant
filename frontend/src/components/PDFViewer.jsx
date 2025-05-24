@@ -3,16 +3,12 @@ import { Worker, Viewer } from '@react-pdf-viewer/core';
 import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
 import { Box, Typography, Paper } from '@mui/material';
 
-// Import CSS
 import '@react-pdf-viewer/core/lib/styles/index.css';
 import '@react-pdf-viewer/default-layout/lib/styles/index.css';
 
 const PDFViewer = ({
   pdfUrl,
-  pageNumberToDisplay,
   onDocumentLoadSuccess,
-  onPageChange,
-  activeHighlight,
 }) => {
   const [numPages, setNumPages] = useState(null);
   const [viewerKey, setViewerKey] = useState(0);
@@ -21,7 +17,6 @@ const PDFViewer = ({
   const defaultLayoutPluginInstance = defaultLayoutPlugin({
     sidebarTabs: (defaultTabs) => [
       defaultTabs[0], // Thumbnails
-      defaultTabs[1], // Bookmarks
     ],
     toolbarPlugin: {
       moreActionsPopover: {
@@ -34,31 +29,15 @@ const PDFViewer = ({
   const handleDocumentLoad = (e) => {
     const pageCount = e.doc.numPages;
     setNumPages(pageCount);
-    console.log('📚 PDF loaded with pages:', pageCount);
     if (onDocumentLoadSuccess) {
       onDocumentLoadSuccess(pageCount);
     }
   };
 
-  // Handle page change
-  const handlePageChange = (e) => {
-    const currentPage = e.currentPage + 1; // Convert from 0-based to 1-based
-    console.log('📄 PDF page changed to:', currentPage);
-    if (onPageChange) {
-      onPageChange(currentPage);
-    }
-  };
-
-  // Force re-render when page changes
+  // Only re-render when PDF URL changes
   useEffect(() => {
-    console.log('📍 PDFViewer received pageNumberToDisplay:', pageNumberToDisplay);
     setViewerKey(prev => prev + 1);
-  }, [pageNumberToDisplay]);
-
-  // Debug active highlight
-  useEffect(() => {
-    console.log('🎯 PDFViewer received activeHighlight:', activeHighlight);
-  }, [activeHighlight]);
+  }, [pdfUrl]);
 
   if (!pdfUrl) {
     return (
@@ -92,10 +71,28 @@ const PDFViewer = ({
         '& .rpv-default-layout__toolbar': {
           flexShrink: 0,
           overflow: 'hidden',
+          padding: { xs: '4px', sm: '8px' },
+          '& button': {
+            minWidth: { xs: '32px', sm: '40px' },
+            padding: { xs: '4px', sm: '8px' },
+          }
+        },
+        '& .rpv-default-layout__sidebar': {
+          width: { xs: '200px !important', sm: '250px !important' },
         },
         '& .rpv-default-layout__main': {
           overflow: 'hidden',
         },
+        // Mobile-specific adjustments
+        '@media (max-width: 768px)': {
+          '& .rpv-toolbar__item': {
+            margin: '0 2px',
+          },
+          '& .rpv-toolbar__button': {
+            fontSize: '12px',
+            padding: '4px',
+          }
+        }
       }}
     >
       <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
@@ -103,9 +100,7 @@ const PDFViewer = ({
           key={viewerKey}
           fileUrl={pdfUrl}
           plugins={[defaultLayoutPluginInstance]}
-          initialPage={pageNumberToDisplay ? pageNumberToDisplay - 1 : 0}
           onDocumentLoad={handleDocumentLoad}
-          onPageChange={handlePageChange}
           theme="light"
         />
       </Worker>

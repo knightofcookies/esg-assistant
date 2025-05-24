@@ -19,7 +19,7 @@ docker run -d --name redis -p 6379:6379 redis:latest
 ```
 (Run as administrator)
 ```
-$ celery -A app.main.celery_app worker -l info
+$ celery -A app.main.celery_app worker -l info -P gevent -c 1
 ```
 
 ```

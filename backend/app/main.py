@@ -851,6 +851,7 @@ def initialize_esg_topics(db: Session):
 
 # --- Celery Tasks ---
 @celery_app.task(name="tasks.process_report_nlp")
+# In the process_report_nlp function, around line 879
 def process_report_nlp(report_id: int, filepath: str):
     logger.info(
         f"Celery task started: Processing NLP for report ID {report_id} from {filepath}"
@@ -864,10 +865,10 @@ def process_report_nlp(report_id: int, filepath: str):
 
     try:
         report.status = "nlp_processing"
-        report.nlp_progress = 0 # Initial progress
+        report.nlp_progress = 0
         db.commit()
 
-        if sentence_model is None or nli_model is None: # Ensure models are loaded
+        if sentence_model is None or nli_model is None:
             logger.warning("NLP models not loaded in worker (process_report_nlp), attempting to load now.")
             load_nlp_models()
             if sentence_model is None or nli_model is None:
@@ -876,7 +877,17 @@ def process_report_nlp(report_id: int, filepath: str):
                 db.commit(); db.close()
                 return
 
-        doc = fitz.open(filepath)
+        # Normalize the file path for the current OS
+        normalized_filepath = os.path.normpath(filepath)
+        logger.info(f"Normalized filepath: {normalized_filepath}")
+        
+        if not os.path.exists(normalized_filepath):
+            logger.error(f"File does not exist: {normalized_filepath}")
+            report.status = "nlp_failed"; report.nlp_progress = 0
+            db.commit(); db.close()
+            return
+
+        doc = fitz.open(normalized_filepath)
         total_pages = len(doc)
         chunks_created_count = 0
 
@@ -943,7 +954,6 @@ def process_report_nlp(report_id: int, filepath: str):
         db.close()
 
 # --- API Endpoints ---
-
 
 # Health Check
 @app.get("/health", response_model=HealthCheck, tags=["Health"])
