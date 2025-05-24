@@ -1,15 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react'; // Added useRef
 import ReportUpload from '../components/ReportUpload';
 import ReportList from '../components/ReportList';
 import { getReports } from '../services/api';
+
+const POLLING_INTERVAL = 5000; // 5 seconds
 
 const DashboardPage = () => {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const pollingIntervalRef = useRef(null); // To store interval ID
 
-  const fetchReports = useCallback(async () => {
-    setLoading(true);
+  const fetchReports = useCallback(async (isPolling = false) => {
+    if (!isPolling) setLoading(true); // Only show full loading state on initial load
+    setError('');
     try {
       const response = await getReports();
       setReports(response.data);
@@ -17,29 +21,56 @@ const DashboardPage = () => {
       setError('Failed to fetch reports.');
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!isPolling) setLoading(false);
     }
   }, []);
 
-
   useEffect(() => {
-    fetchReports();
+    fetchReports(); // Initial fetch
   }, [fetchReports]);
 
+  // Effect for polling
+  useEffect(() => {
+    const clearPolling = () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+
+    const activeProcessing = reports.some(
+      (r) => r.status === 'nlp_queued' || r.status === 'nlp_processing'
+    );
+
+    if (activeProcessing) {
+      if (!pollingIntervalRef.current) { // Start polling only if not already polling
+        pollingIntervalRef.current = setInterval(() => fetchReports(true), POLLING_INTERVAL);
+      }
+    } else {
+      clearPolling(); // Stop polling if no reports are actively processing
+    }
+
+    return () => clearPolling(); // Cleanup on component unmount
+  }, [reports, fetchReports]); // Re-run when reports array changes (to check activeProcessing)
+
+
   const handleUploadSuccess = (newReport) => {
-    // Add to list or re-fetch
-    setReports(prevReports => [newReport, ...prevReports.filter(r => r.id !== newReport.id)]);
-    // Or better: fetchReports(); for consistency if backend modifies status quickly
+    // New report uploaded, NLP task is queued. Fetch reports to update list and start polling if needed.
+    fetchReports();
   };
 
-  if (loading) return <p>Loading reports...</p>;
-  if (error) return <p style={{ color: 'red' }}>{error}</p>;
+  const handleReportDeleted = (deletedReportId) => {
+    setReports(prevReports => prevReports.filter(report => report.id !== deletedReportId));
+  };
+
+  if (loading && reports.length === 0) return <p>Loading reports...</p>; // Show loading only on initial load and if no reports yet
 
   return (
     <div>
       <h2>ESG Dashboard</h2>
+      {error && <p style={{ color: 'red', textAlign: 'center', padding: '10px', border: '1px solid red', borderRadius: '4px' }}>{error}</p>}
       <ReportUpload onUploadSuccess={handleUploadSuccess} />
-      <ReportList reports={reports} />
+      <ReportList reports={reports} onReportDeleted={handleReportDeleted} />
     </div>
   );
 };

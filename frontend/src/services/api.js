@@ -25,7 +25,6 @@ export const registerUser = (userData) => {
 };
 
 export const loginUser = (credentials) => {
-  // FastAPI token endpoint expects form data
   const formData = new URLSearchParams();
   formData.append('username', credentials.username);
   formData.append('password', credentials.password);
@@ -45,7 +44,6 @@ export const getEsgTopics = () => {
 };
 
 export const uploadReport = (formData) => {
-  // company_name and file are part of formData
   return apiClient.post('/reports/', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
@@ -61,37 +59,41 @@ export const getReportDetails = (reportId) => {
   return apiClient.get(`/reports/${reportId}/`);
 };
 
+// New function to fetch PDF as a blob
+export const fetchPdfBlob = (reportId) => {
+  return apiClient.get(`/reports/${reportId}/pdf`, {
+    responseType: 'blob', // Crucial for file download through axios
+  });
+};
+
+export const deleteReport = (reportId) => {
+  return apiClient.delete(`/reports/${reportId}/`);
+};
+
 export const annotateTopic = (reportId, topicId, annotationData) => {
-  return apiClient.post(`/reports/${reportId}/topics/${topic_id}/annotate/`, annotationData);
+  // annotationData should be { status: "answered" | "unanswered" | "pending", auditor_notes?: "string" }
+  return apiClient.post(`/reports/${reportId}/topics/${topicId}/annotate/`, annotationData);
 };
 
 export const getReportScore = (reportId) => {
+  // This endpoint now returns richer data
   return apiClient.get(`/reports/${reportId}/score/`);
 };
 
-export const getNlpSuggestions = (reportId, topicId, threshold) => {
-  return apiClient.get(`/reports/${reportId}/topics/${topic_id}/suggestions/?threshold=${threshold}`);
+export const getNlpSuggestions = (reportId, topicId, threshold, topK = 20) => {
+  // Ensure the template string uses the correct parameter name 'topicId'
+  return apiClient.get(`/reports/${reportId}/topics/${topicId}/suggestions/?threshold=${threshold}&top_k_semantic=${topK}`);
 };
 
-// Function to get the original PDF for a report
-export const getReportPdfUrl = (reportId) => {
-    // This assumes your backend has an endpoint to serve the PDF.
-    // Let's say your backend serves it from /reports/{report_id}/original_pdf/
-    // The backend code you provided doesn't have this endpoint yet. You'd need to add it.
-    // For now, we'll construct a URL, but it won't work until the backend supports it.
-    // A placeholder endpoint in the backend would be:
-    // @app.get("/reports/{report_id}/original_pdf/")
-    // async def serve_original_pdf(report_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
-    //     report = db.query(Report).filter(Report.id == report_id, Report.user_id == current_user.id).first()
-    //     if not report or not report.original_filepath:
-    //         raise HTTPException(status_code=404, detail="Report or PDF file not found")
-    //     if not os.path.exists(report.original_filepath):
-    //         raise HTTPException(status_code=404, detail="PDF file not found on server")
-    //     return FileResponse(report.original_filepath, media_type='application/pdf', filename=report.filename)
-    // This is a simplified example. For now, this function helps construct the URL.
-    // If your backend serves static files from a specific path, adjust accordingly.
-    // Assuming the backend is updated to serve the PDF via a direct link:
-    return `${API_BASE_URL}/reports/${reportId}/original_pdf/`;
+// Optional: if you need to fetch a single topic's details
+export const getSingleEsgTopic = (topicId) => {
+  return apiClient.get(`/esg_topics/${topicId}/`);
+};
+
+// Optional: if you need to manually update report status
+export const updateReportStatus = (reportId, status) => {
+    // status should be one of the literals defined in backend's ReportStatusUpdate
+    return apiClient.patch(`/reports/${reportId}/status`, { status });
 };
 
 
