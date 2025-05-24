@@ -2,7 +2,6 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import ReportScoringPage from './pages/ReportScoringPage';
 import useAuth from './hooks/useAuth';
@@ -23,6 +22,25 @@ function ProtectedRoute({ children }) {
   return authToken ? children : <Navigate to="/login" replace />;
 }
 
+// Component to handle OAuth success redirect
+function AuthSuccess() {
+  const { authToken } = useAuth();
+  
+  React.useEffect(() => {
+    if (authToken) {
+      // AuthContext already handles the redirect, but just in case
+      window.location.href = '/dashboard';
+    }
+  }, [authToken]);
+  
+  return (
+    <Box display="flex" justifyContent="center" alignItems="center" minHeight="80vh">
+      <CircularProgress />
+      <span style={{ marginLeft: '1rem' }}>Completing sign in...</span>
+    </Box>
+  );
+}
+
 function AppContent() {
   const { theme } = useThemeMode();
   
@@ -36,11 +54,7 @@ function AppContent() {
             <LoginPage />
           </Container>
         } />
-        <Route path="/register" element={
-          <Container component="main" sx={{ mt: 4, mb: 1 }}>
-            <RegisterPage />
-          </Container>
-        } />
+        <Route path="/auth/success" element={<AuthSuccess />} />
         <Route
           path="/dashboard"
           element={

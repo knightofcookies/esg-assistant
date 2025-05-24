@@ -1,33 +1,45 @@
-import React, { useState } from 'react';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
-import { loginUser } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getGoogleAuthUrl } from '../services/api';
 import useAuth from '../hooks/useAuth';
 import {
-  Container, Paper, Typography, TextField, Button, Box, Link, Alert, CircularProgress
+  Container, 
+  Paper, 
+  Typography, 
+  Button, 
+  Box, 
+  Alert, 
+  CircularProgress,
+  Divider
 } from '@mui/material';
+import GoogleIcon from '@mui/icons-material/Google';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import Avatar from '@mui/material/Avatar';
 
 const LoginPage = () => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { authToken } = useAuth();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (authToken) {
+      navigate('/dashboard');
+    }
+  }, [authToken, navigate]);
+
+  const handleGoogleLogin = async () => {
     setError('');
     setLoading(true);
     try {
-      const response = await loginUser({ username, password });
-      login(response.data.access_token);
-      navigate('/dashboard');
+      const response = await getGoogleAuthUrl();
+      const authUrl = response.data.auth_url;
+      // Redirect to Google OAuth
+      window.location.href = authUrl;
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
+      setError('Failed to initiate Google login. Please try again.');
       console.error(err);
-    } finally {
       setLoading(false);
     }
   };
@@ -38,55 +50,43 @@ const LoginPage = () => {
         <Avatar sx={{ m: 1, bgcolor: 'secondary.main' }}>
           <LockOutlinedIcon />
         </Avatar>
-        <Typography component="h1" variant="h5">
-          Login
+        <Typography component="h1" variant="h5" gutterBottom>
+          Sign in to ESG Scorer
         </Typography>
-        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1, width: '100%' }}>
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            id="username"
-            label="Username"
-            name="username"
-            autoComplete="username"
-            autoFocus
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            disabled={loading}
-          />
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            name="password"
-            label="Password"
-            type="password"
-            id="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={loading}
-          />
+        
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
+          Use your Google account to access the ESG Scoring Assistant
+        </Typography>
+
+        <Box sx={{ mt: 1, width: '100%' }}>
           {error && (
-            <Alert severity="error" sx={{ mt: 2, width: '100%' }}>
+            <Alert severity="error" sx={{ mb: 2, width: '100%' }}>
               {error}
             </Alert>
           )}
+          
           <Button
-            type="submit"
             fullWidth
-            variant="contained"
-            sx={{ mt: 3, mb: 2 }}
+            variant="outlined"
+            startIcon={loading ? <CircularProgress size={20} /> : <GoogleIcon />}
+            onClick={handleGoogleLogin}
             disabled={loading}
+            sx={{ 
+              mt: 2, 
+              mb: 2, 
+              py: 1.5,
+              textTransform: 'none',
+              fontSize: '1rem'
+            }}
           >
-            {loading ? <CircularProgress size={24} color="inherit" /> : 'Login'}
+            {loading ? 'Redirecting...' : 'Continue with Google'}
           </Button>
-          <Box textAlign="right">
-            <Link component={RouterLink} to="/register" variant="body2">
-              Don't have an account? Register here
-            </Link>
-          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center' }}>
+            By signing in, you agree to our terms of service and privacy policy.
+          </Typography>
         </Box>
       </Paper>
     </Container>

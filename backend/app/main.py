@@ -14,9 +14,13 @@ from fastapi import (
     Form,
     Query,
     status,
+    Request,
 )
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import FileResponse  # Added for serving PDF files
+from fastapi.security import OAuth2AuthorizationCodeBearer
+from fastapi.responses import (
+    FileResponse,
+    RedirectResponse,
+)  # Added for serving PDF files
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import (
     create_engine,
@@ -39,8 +43,9 @@ from sqlalchemy.orm import (
 from pydantic import BaseModel, Field, EmailStr
 
 # Security and Authentication
-from passlib.context import CryptContext
 from jose import JWTError, jwt
+import httpx
+from urllib.parse import urlencode
 
 # PDF and NLP
 import fitz  # PyMuPDF
@@ -51,6 +56,8 @@ import torch
 # Asynchronous tasks
 from celery import Celery
 from celery.signals import worker_ready  # To load models in worker
+
+from passlib.context import CryptContext
 
 # --- Configuration & Setup ---
 # Load .env variables (simple way for single file, consider python-dotenv for robust .env handling)
@@ -66,6 +73,19 @@ if os.path.exists(".env"):
 SECRET_KEY = os.getenv("SECRET_KEY", "default_secret_key_please_change")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback"
+)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+    raise ValueError(
+        "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment variables"
+    )
 
 DATABASE_URL = "sqlite:///./esg_scorer.db"
 UPLOAD_DIRECTORY = "./uploaded_reports"
@@ -99,7 +119,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:5173",
-    ],  # Vite default ports
+        FRONTEND_URL,
+    ],  # Vite default ports + frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -168,15 +189,10 @@ def on_worker_ready(**kwargs):
 
 # --- Password Hashing & JWT ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    authorizationUrl="https://accounts.google.com/o/oauth2/auth",
+    tokenUrl="https://oauth2.googleapis.com/token",
+)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -190,15 +206,34 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
+async def verify_google_token(token: str) -> dict:
+    """Verify Google OAuth token and return user info"""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"https://www.googleapis.com/oauth2/v1/userinfo?access_token={token}"
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token"
+            )
+
+
 # --- Database Models (SQLAlchemy) ---
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True, nullable=False)
+    google_id = Column(
+        String, unique=True, index=True, nullable=False
+    )  # Google user ID
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    name = Column(String, nullable=False)  # Full name from Google
+    picture = Column(String, nullable=True)  # Profile picture URL
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
     reports = relationship("Report", back_populates="owner")
+
 
 class Report(Base):
     __tablename__ = "reports"
@@ -207,7 +242,7 @@ class Report(Base):
     original_filepath = Column(String)
     upload_timestamp = Column(DateTime, default=datetime.utcnow)
     status = Column(String, default="uploaded")
-    nlp_progress = Column(Integer, default=0) # << NEW FIELD (0-100)
+    nlp_progress = Column(Integer, default=0)  # << NEW FIELD (0-100)
     company_name = Column(String, nullable=True)
     final_score = Column(Integer, nullable=True, default=0)
     user_id = Column(Integer, ForeignKey("users.id"))
@@ -218,6 +253,7 @@ class Report(Base):
     chunks = relationship(
         "ReportChunk", back_populates="report", cascade="all, delete-orphan"
     )
+
 
 class ESGTopic(Base):
     __tablename__ = "esg_topics"
@@ -273,9 +309,12 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
-    username: str
+    google_id: str
     email: EmailStr
+    name: str
+    picture: Optional[str] = None
     is_active: bool
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -284,10 +323,18 @@ class UserResponse(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user: UserResponse
 
 
 class TokenData(BaseModel):
-    username: Optional[str] = None
+    google_id: Optional[str] = None
+
+
+class GoogleAuthResponse(BaseModel):
+    access_token: str
+    token_type: str
+    expires_in: int
+    refresh_token: Optional[str] = None
 
 
 class ESGTopicResponse(BaseModel):
@@ -317,12 +364,13 @@ class ReportTopicAnnotationResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ReportResponse(BaseModel):
     id: int
     filename: str
     upload_timestamp: datetime
     status: str
-    nlp_progress: Optional[int] = 0 # << NEW FIELD
+    nlp_progress: Optional[int] = 0  # << NEW FIELD
     company_name: Optional[str] = None
     final_score: Optional[int] = 0
     user_id: int
@@ -330,6 +378,7 @@ class ReportResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class ReportStatusUpdate(BaseModel):  # New schema for updating report status
     status: Literal[
@@ -378,23 +427,30 @@ def get_db():
         db.close()
 
 
-async def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
-) -> User:
+async def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    # Get token from Authorization header
+    authorization = request.headers.get("Authorization")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise credentials_exception
+
+    token = authorization.split(" ")[1]
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        google_id: str = payload.get("sub")
+        if google_id is None:
             raise credentials_exception
-        token_data = TokenData(username=username)
+        token_data = TokenData(google_id=google_id)
     except JWTError:
         raise credentials_exception
-    user = db.query(User).filter(User.username == token_data.username).first()
+
+    user = db.query(User).filter(User.google_id == token_data.google_id).first()
     if user is None:
         raise credentials_exception
     return user
@@ -869,22 +925,30 @@ def process_report_nlp(report_id: int, filepath: str):
         db.commit()
 
         if sentence_model is None or nli_model is None:
-            logger.warning("NLP models not loaded in worker (process_report_nlp), attempting to load now.")
+            logger.warning(
+                "NLP models not loaded in worker (process_report_nlp), attempting to load now."
+            )
             load_nlp_models()
             if sentence_model is None or nli_model is None:
-                logger.error("Failed to load NLP models in Celery worker. Aborting NLP task.")
-                report.status = "nlp_failed"; report.nlp_progress = 0
-                db.commit(); db.close()
+                logger.error(
+                    "Failed to load NLP models in Celery worker. Aborting NLP task."
+                )
+                report.status = "nlp_failed"
+                report.nlp_progress = 0
+                db.commit()
+                db.close()
                 return
 
         # Normalize the file path for the current OS
         normalized_filepath = os.path.normpath(filepath)
         logger.info(f"Normalized filepath: {normalized_filepath}")
-        
+
         if not os.path.exists(normalized_filepath):
             logger.error(f"File does not exist: {normalized_filepath}")
-            report.status = "nlp_failed"; report.nlp_progress = 0
-            db.commit(); db.close()
+            report.status = "nlp_failed"
+            report.nlp_progress = 0
+            db.commit()
+            db.close()
             return
 
         doc = fitz.open(normalized_filepath)
@@ -892,8 +956,10 @@ def process_report_nlp(report_id: int, filepath: str):
         chunks_created_count = 0
 
         if total_pages == 0:
-            logger.warning(f"Report ID {report_id} is an empty PDF (0 pages). Marking as processed.")
-            report.status = "processed" # Or "nlp_failed" or a custom status
+            logger.warning(
+                f"Report ID {report_id} is an empty PDF (0 pages). Marking as processed."
+            )
+            report.status = "processed"  # Or "nlp_failed" or a custom status
             report.nlp_progress = 100
             db.commit()
             doc.close()
@@ -905,13 +971,22 @@ def process_report_nlp(report_id: int, filepath: str):
             text_blocks = page.get_text("blocks")
             for block in text_blocks:
                 block_text = block[4].strip().replace("\n", " ")
-                if len(block_text) > 50: # Basic filter
-                    chunk_embedding_list = sentence_model.encode(block_text).tolist() if sentence_model else []
+                if len(block_text) > 50:  # Basic filter
+                    chunk_embedding_list = (
+                        sentence_model.encode(block_text).tolist()
+                        if sentence_model
+                        else []
+                    )
 
                     db_chunk = ReportChunk(
                         report_id=report_id, chunk_text=block_text, page_number=page_num
                     )
-                    block_coords = {"x0": block[0], "y0": block[1], "x1": block[2], "y1": block[3]}
+                    block_coords = {
+                        "x0": block[0],
+                        "y0": block[1],
+                        "x1": block[2],
+                        "y1": block[3],
+                    }
                     db_chunk.coordinates_json = json.dumps(block_coords)
                     if chunk_embedding_list:
                         db_chunk.set_embedding(chunk_embedding_list)
@@ -920,23 +995,31 @@ def process_report_nlp(report_id: int, filepath: str):
 
             # Update progress after processing each page's blocks
             # We commit all chunks at the end of the loop for efficiency, but progress can be updated more often
-            current_progress_percentage = int(((page_num_idx + 1) / total_pages) * 95) # Go up to 95%, 100% on final commit
-            if report.nlp_progress < current_progress_percentage: # Update only if progress increased
+            current_progress_percentage = int(
+                ((page_num_idx + 1) / total_pages) * 95
+            )  # Go up to 95%, 100% on final commit
+            if (
+                report.nlp_progress < current_progress_percentage
+            ):  # Update only if progress increased
                 report.nlp_progress = current_progress_percentage
                 try:
-                    db.commit() # Commit progress update
-                    db.refresh(report) # Refresh to get the latest state if needed elsewhere
+                    db.commit()  # Commit progress update
+                    db.refresh(
+                        report
+                    )  # Refresh to get the latest state if needed elsewhere
                 except Exception as progress_commit_exc:
-                    logger.error(f"Error committing interim progress for report {report_id}: {progress_commit_exc}")
-                    db.rollback() # Rollback only this progress commit attempt
+                    logger.error(
+                        f"Error committing interim progress for report {report_id}: {progress_commit_exc}"
+                    )
+                    db.rollback()  # Rollback only this progress commit attempt
                     # The main transaction for chunks will continue.
 
-        db.commit() # Commit all added chunks
+        db.commit()  # Commit all added chunks
         doc.close()
         logger.info(f"Created {chunks_created_count} chunks for report ID {report_id}.")
 
         report.status = "processed"
-        report.nlp_progress = 100 # Mark as 100%
+        report.nlp_progress = 100  # Mark as 100%
         db.commit()
         logger.info(
             f"NLP processing finished for report ID {report_id}. Status set to 'processed'."
@@ -946,14 +1029,18 @@ def process_report_nlp(report_id: int, filepath: str):
         logger.error(
             f"Error during NLP processing for report ID {report_id}: {e}", exc_info=True
         )
-        if report: # Check if report was fetched
+        if report:  # Check if report was fetched
             report.status = "nlp_failed"
-            report.nlp_progress = 0 # Or last known good progress, or a specific error progress value
+            report.nlp_progress = (
+                0  # Or last known good progress, or a specific error progress value
+            )
             db.commit()
     finally:
         db.close()
 
+
 # --- API Endpoints ---
+
 
 # Health Check
 @app.get("/health", response_model=HealthCheck, tags=["Health"])
@@ -972,59 +1059,147 @@ async def health_check(db: Session = Depends(get_db)):
     )
 
 
-# User Management & Auth
-@app.post(
-    "/users/",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED,
-    tags=["Users"],
-)
-def create_user_endpoint(user_data: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == user_data.email).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    db_user_by_username = (
-        db.query(User).filter(User.username == user_data.username).first()
-    )
-    if db_user_by_username:
-        raise HTTPException(status_code=400, detail="Username already exists")
-
-    hashed_password = get_password_hash(user_data.password)
-    db_user_instance = User(
-        username=user_data.username,
-        email=user_data.email,
-        hashed_password=hashed_password,
-    )
-    db.add(db_user_instance)
-    db.commit()
-    db.refresh(db_user_instance)
-    return db_user_instance
+# Google OAuth endpoints
+@app.get("/auth/login", tags=["Authentication"])
+async def login():
+    """Redirect to Google OAuth login"""
+    google_auth_url = "https://accounts.google.com/o/oauth2/auth"
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "scope": "openid email profile",
+        "response_type": "code",
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    auth_url = f"{google_auth_url}?{urlencode(params)}"
+    return {"auth_url": auth_url}
 
 
-@app.post("/token", response_model=Token, tags=["Users"])
-async def login_for_access_token_endpoint(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
-):
-    user = db.query(User).filter(User.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+@app.get("/auth/callback", tags=["Authentication"])
+async def auth_callback(code: str, db: Session = Depends(get_db)):
+    """Handle Google OAuth callback"""
+    # Exchange code for tokens
+    async with httpx.AsyncClient() as client:
+        token_data = {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+        }
+
+        token_response = await client.post(
+            "https://oauth2.googleapis.com/token", data=token_data
         )
+
+        if token_response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to exchange code for token",
+            )
+
+        tokens = token_response.json()
+        access_token = tokens.get("access_token")
+
+        # Get user info from Google
+        user_info_response = await client.get(
+            f"https://www.googleapis.com/oauth2/v1/userinfo?access_token={access_token}"
+        )
+
+        if user_info_response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to get user info from Google",
+            )
+
+        user_info = user_info_response.json()
+
+    # Create or update user in database
+    user = db.query(User).filter(User.google_id == user_info["id"]).first()
+
+    if not user:
+        # Create new user
+        user = User(
+            google_id=user_info["id"],
+            email=user_info["email"],
+            name=user_info["name"],
+            picture=user_info.get("picture"),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        # Update existing user info
+        user.email = user_info["email"]
+        user.name = user_info["name"]
+        user.picture = user_info.get("picture")
+        db.commit()
+        db.refresh(user)
+
+    # Create JWT token
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    jwt_token = create_access_token(
+        data={"sub": user.google_id}, expires_delta=access_token_expires
+    )
+
+    # Redirect to frontend with token
+    frontend_redirect = f"{FRONTEND_URL}/auth/success?token={jwt_token}"
+    return RedirectResponse(url=frontend_redirect)
+
+
+@app.post("/auth/token", response_model=Token, tags=["Authentication"])
+async def verify_google_token_endpoint(
+    google_token: str = Form(...), db: Session = Depends(get_db)
+):
+    """Verify Google token and return JWT token"""
+    user_info = await verify_google_token(google_token)
+
+    # Create or update user in database
+    user = db.query(User).filter(User.google_id == user_info["id"]).first()
+
+    if not user:
+        # Create new user
+        user = User(
+            google_id=user_info["id"],
+            email=user_info["email"],
+            name=user_info["name"],
+            picture=user_info.get("picture"),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        # Update existing user info
+        user.email = user_info["email"]
+        user.name = user_info["name"]
+        user.picture = user_info.get("picture")
+        db.commit()
+        db.refresh(user)
+
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
 
+    # Create JWT token
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+    jwt_token = create_access_token(
+        data={"sub": user.google_id}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+
+    return Token(
+        access_token=jwt_token, token_type="bearer", user=UserResponse.from_orm(user)
+    )
 
 
 @app.get("/users/me", response_model=UserResponse, tags=["Users"])
 async def read_users_me_endpoint(current_user: User = Depends(get_current_active_user)):
     return current_user
+
+
+@app.post("/auth/logout", tags=["Authentication"])
+async def logout():
+    """Logout endpoint (client should delete token)"""
+    return {"message": "Logged out successfully"}
 
 
 # ESG Topics
@@ -1707,7 +1882,7 @@ async def get_nlp_suggestions_endpoint(
     logger.info(
         "Generated %d suggestions passing NLI threshold %f.",
         len(suggestions),
-        threshold
+        threshold,
     )
     suggestions.sort(key=lambda s: s.entailment_score, reverse=True)
     return suggestions

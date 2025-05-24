@@ -11,3 +11,4 @@ transformers
 torch
 celery[redis]
 numpy
+httpx

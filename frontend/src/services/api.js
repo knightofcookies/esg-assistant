@@ -37,19 +37,23 @@ apiClient.interceptors.response.use(
   }
 );
 
-export const registerUser = (userData) => {
-  return apiClient.post('/users/', userData);
+// Google OAuth endpoints
+export const getGoogleAuthUrl = () => {
+  return apiClient.get('/auth/login');
 };
 
-export const loginUser = (credentials) => {
+export const verifyGoogleToken = (googleToken) => {
   const formData = new URLSearchParams();
-  formData.append('username', credentials.username);
-  formData.append('password', credentials.password);
-  return apiClient.post('/token', formData, {
+  formData.append('google_token', googleToken);
+  return apiClient.post('/auth/token', formData, {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
   });
+};
+
+export const logoutUser = () => {
+  return apiClient.post('/auth/logout');
 };
 
 export const getCurrentUser = () => {

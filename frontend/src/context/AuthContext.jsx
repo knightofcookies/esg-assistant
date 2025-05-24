@@ -26,10 +26,26 @@ export const AuthProvider = ({ children }) => {
     fetchUser();
   }, [authToken]);
 
-  const login = (token) => {
+  // Handle OAuth callback with token from URL
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    if (token && window.location.pathname === '/auth/success') {
+      localStorage.setItem('authToken', token);
+      setAuthToken(token);
+      // Clear token from URL and redirect to dashboard
+      window.history.replaceState({}, document.title, '/dashboard');
+    }
+  }, []);
+
+  const login = (token, user = null) => {
     localStorage.setItem('authToken', token);
     setAuthToken(token);
-    // User will be fetched by useEffect
+    if (user) {
+      setCurrentUser(user);
+    }
+    // User will be fetched by useEffect if not provided
   };
 
   const logout = () => {
