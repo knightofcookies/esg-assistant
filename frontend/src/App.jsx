@@ -7,37 +7,73 @@ import DashboardPage from './pages/DashboardPage';
 import ReportScoringPage from './pages/ReportScoringPage';
 import useAuth from './hooks/useAuth';
 
+import { CssBaseline, Container, CircularProgress, Box } from '@mui/material';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+
+// Optional: Create a basic theme
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#1976d2', // Example primary color
+    },
+    secondary: {
+      main: '#dc004e', // Example secondary color
+    },
+  },
+});
+
 function ProtectedRoute({ children }) {
   const { authToken, loading } = useAuth();
-  if (loading) return <div>Loading...</div>; // Or a spinner
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="80vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
   return authToken ? children : <Navigate to="/login" replace />;
 }
 
 function App() {
   return (
-    <>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
       <Navbar />
-      <div className="container">
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route 
-            path="/dashboard" 
-            element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} 
-          />
-          <Route 
-            path="/report/:reportId" 
-            element={<ProtectedRoute><ReportScoringPage /></ProtectedRoute>} 
-          />
-          <Route 
-            path="/" 
-            element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} // Default to dashboard if logged in
-          />
-           {/* Fallback for non-logged in users visiting root */}
-          <Route path="/" element={<Navigate to="/login" />} />
-        </Routes>
-      </div>
-    </>
+      <Routes>
+        <Route path="/login" element={
+          <Container component="main" sx={{ mt: 4, mb: 1 }}>
+            <LoginPage />
+          </Container>
+        } />
+        <Route path="/register" element={
+          <Container component="main" sx={{ mt: 4, mb: 1 }}>
+            <RegisterPage />
+          </Container>
+        } />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Container component="main" sx={{ mt: 4, mb: 1 }}>
+                <DashboardPage />
+              </Container>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/report/:reportId"
+          element={
+            <ProtectedRoute>
+              <ReportScoringPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/"
+          element={<ProtectedRoute><Navigate to="/dashboard" /></ProtectedRoute>}
+        />
+      </Routes>
+    </ThemeProvider>
   );
 }
 

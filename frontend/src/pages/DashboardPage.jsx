@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'; // Added useRef
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReportUpload from '../components/ReportUpload';
 import ReportList from '../components/ReportList';
 import { getReports } from '../services/api';
+import { Box, Typography, Alert, CircularProgress, Paper } from '@mui/material';
 
 const POLLING_INTERVAL = 5000; // 5 seconds
 
@@ -9,10 +10,10 @@ const DashboardPage = () => {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const pollingIntervalRef = useRef(null); // To store interval ID
+  const pollingIntervalRef = useRef(null);
 
   const fetchReports = useCallback(async (isPolling = false) => {
-    if (!isPolling) setLoading(true); // Only show full loading state on initial load
+    if (!isPolling) setLoading(true);
     setError('');
     try {
       const response = await getReports();
@@ -26,10 +27,9 @@ const DashboardPage = () => {
   }, []);
 
   useEffect(() => {
-    fetchReports(); // Initial fetch
+    fetchReports();
   }, [fetchReports]);
 
-  // Effect for polling
   useEffect(() => {
     const clearPolling = () => {
       if (pollingIntervalRef.current) {
@@ -43,19 +43,17 @@ const DashboardPage = () => {
     );
 
     if (activeProcessing) {
-      if (!pollingIntervalRef.current) { // Start polling only if not already polling
+      if (!pollingIntervalRef.current) {
         pollingIntervalRef.current = setInterval(() => fetchReports(true), POLLING_INTERVAL);
       }
     } else {
-      clearPolling(); // Stop polling if no reports are actively processing
+      clearPolling();
     }
 
-    return () => clearPolling(); // Cleanup on component unmount
-  }, [reports, fetchReports]); // Re-run when reports array changes (to check activeProcessing)
-
+    return () => clearPolling();
+  }, [reports, fetchReports]);
 
   const handleUploadSuccess = (newReport) => {
-    // New report uploaded, NLP task is queued. Fetch reports to update list and start polling if needed.
     fetchReports();
   };
 
@@ -63,15 +61,32 @@ const DashboardPage = () => {
     setReports(prevReports => prevReports.filter(report => report.id !== deletedReportId));
   };
 
-  if (loading && reports.length === 0) return <p>Loading reports...</p>; // Show loading only on initial load and if no reports yet
+  if (loading && reports.length === 0) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
+        <CircularProgress />
+        <Typography variant="h6" sx={{ ml: 2 }}>Loading reports...</Typography>
+      </Box>
+    );
+  }
 
   return (
-    <div>
-      <h2>ESG Dashboard</h2>
-      {error && <p style={{ color: 'red', textAlign: 'center', padding: '10px', border: '1px solid red', borderRadius: '4px' }}>{error}</p>}
-      <ReportUpload onUploadSuccess={handleUploadSuccess} />
-      <ReportList reports={reports} onReportDeleted={handleReportDeleted} />
-    </div>
+    <Box sx={{ my: 2 }}>
+      <Typography variant="h4" component="h1" gutterBottom>
+        ESG Dashboard
+      </Typography>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+        <ReportUpload onUploadSuccess={handleUploadSuccess} />
+      </Paper>
+      <Paper elevation={2} sx={{ p: 3 }}>
+        <ReportList reports={reports} onReportDeleted={handleReportDeleted} />
+      </Paper>
+    </Box>
   );
 };
 

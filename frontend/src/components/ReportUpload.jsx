@@ -1,14 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { uploadReport } from '../services/api';
+import { Box, Typography, TextField, Button, Alert, CircularProgress, Stack } from '@mui/material';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
 const ReportUpload = ({ onUploadSuccess }) => {
   const [file, setFile] = useState(null);
   const [companyName, setCompanyName] = useState('');
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null); // To reset file input
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+        if (selectedFile.type !== "application/pdf") {
+            setError("Please select a PDF file.");
+            setFile(null);
+            if(fileInputRef.current) fileInputRef.current.value = ""; // Clear the input
+            return;
+        }
+        setError(''); // Clear previous error if any
+        setFile(selectedFile);
+    } else {
+        setFile(null);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -28,10 +43,12 @@ const ReportUpload = ({ onUploadSuccess }) => {
 
     try {
       const response = await uploadReport(formData);
-      onUploadSuccess(response.data); // Pass uploaded report data to parent
+      onUploadSuccess(response.data);
       setFile(null);
       setCompanyName('');
-      e.target.reset(); // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""; // Reset file input more reliably
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Upload failed.');
       console.error(err);
@@ -41,34 +58,49 @@ const ReportUpload = ({ onUploadSuccess }) => {
   };
 
   return (
-    <div className="card">
-      <h3>Upload New Report</h3>
+    <Box>
+      <Typography variant="h5" component="h3" gutterBottom>
+        Upload New Report
+      </Typography>
       <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="companyName">Company Name (Optional):</label>
-          <input
-            type="text"
+        <Stack spacing={2}>
+          <TextField
+            fullWidth
+            label="Company Name (Optional)"
             id="companyName"
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
+            disabled={uploading}
+            variant="outlined"
+            size="small"
           />
-        </div>
-        <div>
-          <label htmlFor="file">Report PDF:</label>
-          <input
+          <TextField
+            fullWidth
             type="file"
             id="file"
-            accept=".pdf"
+            // label="Report PDF" // Not ideal for type="file"
+            InputLabelProps={{ shrink: true }}
+            inputProps={{ accept: ".pdf" }}
             onChange={handleFileChange}
             required
+            disabled={uploading}
+            variant="outlined"
+            size="small"
+            inputRef={fileInputRef}
+            helperText={file ? file.name : "Select a PDF file"}
           />
-        </div>
-        {error && <p style={{ color: 'red' }}>{error}</p>}
-        <button type="submit" disabled={uploading}>
-          {uploading ? 'Uploading...' : 'Upload Report'}
-        </button>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Button
+            type="submit"
+            variant="contained"
+            startIcon={uploading ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+            disabled={uploading || !file}
+          >
+            {uploading ? 'Uploading...' : 'Upload Report'}
+          </Button>
+        </Stack>
       </form>
-    </div>
+    </Box>
   );
 };
 

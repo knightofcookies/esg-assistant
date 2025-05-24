@@ -71,7 +71,11 @@ export const deleteReport = (reportId) => {
 };
 
 export const annotateTopic = (reportId, topicId, annotationData) => {
-  // annotationData should be { status: "answered" | "unanswered" | "pending", auditor_notes?: "string" }
+  console.log('🌐 API Call - annotateTopic:', {
+    url: `/reports/${reportId}/topics/${topicId}/annotate/`,
+    data: annotationData,
+    headers: apiClient.defaults.headers
+  });
   return apiClient.post(`/reports/${reportId}/topics/${topicId}/annotate/`, annotationData);
 };
 
